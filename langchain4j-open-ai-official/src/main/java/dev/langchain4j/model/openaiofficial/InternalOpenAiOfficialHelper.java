@@ -1,11 +1,11 @@
 package dev.langchain4j.model.openaiofficial;
 
 import static dev.langchain4j.internal.Exceptions.illegalArgument;
+import static dev.langchain4j.internal.JsonSchemaElementUtils.toMap;
 import static dev.langchain4j.internal.Utils.getOrDefault;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotBlank;
 import static dev.langchain4j.model.chat.request.ResponseFormat.JSON;
 import static dev.langchain4j.model.chat.request.ResponseFormatType.TEXT;
-import static dev.langchain4j.model.chat.request.json.JsonSchemaElementHelper.toMap;
 import static java.time.Duration.ofSeconds;
 import static java.util.stream.Collectors.toList;
 
@@ -19,7 +19,6 @@ import com.openai.core.JsonValue;
 import com.openai.credential.Credential;
 import com.openai.models.FunctionDefinition;
 import com.openai.models.FunctionParameters;
-import com.openai.models.Metadata;
 import com.openai.models.ReasoningEffort;
 import com.openai.models.ResponseFormatJsonObject;
 import com.openai.models.chat.completions.ChatCompletion;
@@ -135,20 +134,15 @@ class InternalOpenAiOfficialHelper {
         builder.baseUrl(
                 calculateBaseUrl(baseUrl, modelHost, modelName, azureDeploymentName, azureOpenAiServiceVersion));
 
-        if (apiKey != null) {
-            if (modelHost == ModelHost.AZURE_OPENAI) {
-                builder.credential(AzureApiKeyCredential.create(apiKey));
-            } else {
-                builder.apiKey(apiKey);
-            }
-        } else if (credential != null) {
-            builder.credential(credential);
-        } else if (modelHost == ModelHost.GITHUB_MODELS && System.getenv(GITHUB_TOKEN) != null) {
-            builder.apiKey(System.getenv(GITHUB_TOKEN));
-        } else {
+        Credential calculatedCredential = calculateCredential(modelHost, apiKey, credential);
+        String calculatedApiKey = calculateApiKey(modelHost, apiKey);
+        if (calculatedCredential == null && calculatedApiKey == null) {
             throw new IllegalArgumentException("Either apiKey or credential must be set to authenticate");
+        } else if (calculatedCredential != null) {
+            builder.credential(calculatedCredential);
+        } else {
+            builder.apiKey(calculatedApiKey);
         }
-
         builder.organization(organizationId);
 
         if (azureOpenAiServiceVersion != null) {
@@ -169,7 +163,7 @@ class InternalOpenAiOfficialHelper {
         timeout = getOrDefault(timeout, ofSeconds(60));
         builder.timeout(timeout);
 
-        builder.maxRetries(getOrDefault(maxRetries, 3));
+        builder.maxRetries(getOrDefault(maxRetries, 2));
 
         return builder.build();
     }
@@ -197,20 +191,15 @@ class InternalOpenAiOfficialHelper {
         builder.baseUrl(
                 calculateBaseUrl(baseUrl, modelHost, modelName, azureDeploymentName, azureOpenAiServiceVersion));
 
-        if (apiKey != null) {
-            if (modelHost == ModelHost.AZURE_OPENAI) {
-                builder.credential(AzureApiKeyCredential.create(apiKey));
-            } else {
-                builder.apiKey(apiKey);
-            }
-        } else if (credential != null) {
-            builder.credential(credential);
-        } else if (modelHost == ModelHost.GITHUB_MODELS && System.getenv(GITHUB_TOKEN) != null) {
-            builder.apiKey(System.getenv(GITHUB_TOKEN));
-        } else {
+        Credential calculatedCredential = calculateCredential(modelHost, apiKey, credential);
+        String calculatedApiKey = calculateApiKey(modelHost, apiKey);
+        if (calculatedCredential == null && calculatedApiKey == null) {
             throw new IllegalArgumentException("Either apiKey or credential must be set to authenticate");
+        } else if (calculatedCredential != null) {
+            builder.credential(calculatedCredential);
+        } else {
+            builder.apiKey(calculatedApiKey);
         }
-
         builder.organization(organizationId);
 
         if (azureOpenAiServiceVersion != null) {
@@ -231,7 +220,7 @@ class InternalOpenAiOfficialHelper {
         timeout = getOrDefault(timeout, ofSeconds(60));
         builder.timeout(timeout);
 
-        builder.maxRetries(getOrDefault(maxRetries, 3));
+        builder.maxRetries(getOrDefault(maxRetries, 2));
 
         return builder.build();
     }
@@ -263,6 +252,34 @@ class InternalOpenAiOfficialHelper {
         } else {
             throw new IllegalArgumentException("Unknown model host: " + modelHost);
         }
+    }
+
+    private static Credential calculateCredential(ModelHost modelHost, String apiKey, Credential credential) {
+        if (apiKey != null) {
+            if (modelHost == ModelHost.AZURE_OPENAI) {
+                return AzureApiKeyCredential.create(apiKey);
+            }
+        } else if (credential != null) {
+            return credential;
+        } else if (modelHost == ModelHost.AZURE_OPENAI) {
+            try {
+                return AzureInternalOpenAiOfficialHelper.getAzureCredential();
+            } catch (NoClassDefFoundError e) {
+                throw new IllegalArgumentException(
+                        "Azure OpenAI was detected, but no credential was provided. "
+                                + "If you want to use passwordless authentication, you need to add the Azure Identity library (groupId=`com.azure`, artifactId=`azure-identity`) to your classpath.");
+            }
+        }
+        return null;
+    }
+
+    private static String calculateApiKey(ModelHost modelHost, String apiKey) {
+        if (modelHost != ModelHost.AZURE_OPENAI && apiKey != null) {
+            return apiKey;
+        } else if (modelHost == ModelHost.GITHUB_MODELS && System.getenv(GITHUB_TOKEN) != null) {
+            return System.getenv(GITHUB_TOKEN);
+        }
+        return null;
     }
 
     static List<ChatCompletionMessageParam> toOpenAiMessages(List<ChatMessage> messages) {
@@ -369,10 +386,6 @@ class InternalOpenAiOfficialHelper {
     }
 
     static List<ChatCompletionTool> toTools(Collection<ToolSpecification> toolSpecifications, boolean strict) {
-        if (toolSpecifications == null) {
-            return null;
-        }
-
         return toolSpecifications.stream()
                 .map((ToolSpecification toolSpecification) -> toTool(toolSpecification, strict))
                 .collect(toList());
@@ -417,7 +430,7 @@ class InternalOpenAiOfficialHelper {
             } else {
                 parametersBuilder.putAdditionalProperty("required", JsonValue.from(parameters.required()));
             }
-            if (parameters.definitions() != null) {
+            if (!parameters.definitions().isEmpty()) {
                 parametersBuilder.putAdditionalProperty(
                         "$defs", JsonValue.from(toMap(parameters.definitions(), strict)));
             }
@@ -475,8 +488,9 @@ class InternalOpenAiOfficialHelper {
         OpenAiOfficialTokenUsage.InputTokensDetails inputTokensDetails = null;
         if (promptTokensDetails.isPresent()
                 && promptTokensDetails.get().cachedTokens().isPresent()) {
-            inputTokensDetails = new OpenAiOfficialTokenUsage.InputTokensDetails(
-                    promptTokensDetails.get().cachedTokens().get());
+            inputTokensDetails = OpenAiOfficialTokenUsage.InputTokensDetails.builder()
+                    .cachedTokens(promptTokensDetails.get().cachedTokens().get())
+                    .build();
         }
 
         Optional<CompletionUsage.CompletionTokensDetails> completionTokensDetails =
@@ -484,8 +498,10 @@ class InternalOpenAiOfficialHelper {
         OpenAiOfficialTokenUsage.OutputTokensDetails outputTokensDetails = null;
         if (completionTokensDetails.isPresent()
                 && completionTokensDetails.get().reasoningTokens().isPresent()) {
-            outputTokensDetails = new OpenAiOfficialTokenUsage.OutputTokensDetails(
-                    completionTokensDetails.get().reasoningTokens().get());
+            outputTokensDetails = OpenAiOfficialTokenUsage.OutputTokensDetails.builder()
+                    .reasoningTokens(
+                            completionTokensDetails.get().reasoningTokens().get())
+                    .build();
         }
 
         return OpenAiOfficialTokenUsage.builder()
@@ -632,7 +648,7 @@ class InternalOpenAiOfficialHelper {
             builder.maxCompletionTokens(parameters.maxCompletionTokens());
         }
 
-        if (parameters.logitBias() != null) {
+        if (!parameters.logitBias().isEmpty()) {
             builder.logitBias(ChatCompletionCreateParams.LogitBias.builder()
                     .putAllAdditionalProperties(parameters.logitBias().entrySet().stream()
                             .collect(Collectors.toMap(Map.Entry::getKey, entry -> JsonValue.from(entry.getValue()))))
@@ -655,8 +671,8 @@ class InternalOpenAiOfficialHelper {
             builder.store(parameters.store());
         }
 
-        if (parameters.metadata() != null) {
-            builder.metadata(Metadata.builder()
+        if (!parameters.metadata().isEmpty()) {
+            builder.metadata(ChatCompletionCreateParams.Metadata.builder()
                     .putAllAdditionalProperties(parameters.metadata().entrySet().stream()
                             .collect(Collectors.toMap(Map.Entry::getKey, entry -> JsonValue.from(entry.getValue()))))
                     .build());
@@ -689,11 +705,11 @@ class InternalOpenAiOfficialHelper {
             builder.presencePenalty(parameters.presencePenalty());
         }
 
-        if (parameters.stopSequences() != null) {
+        if (!parameters.stopSequences().isEmpty()) {
             builder.stop(ChatCompletionCreateParams.Stop.ofStrings(parameters.stopSequences()));
         }
 
-        if (parameters.toolSpecifications() != null) {
+        if (!parameters.toolSpecifications().isEmpty()) {
             builder.tools(toTools(parameters.toolSpecifications(), strictTools));
         }
 

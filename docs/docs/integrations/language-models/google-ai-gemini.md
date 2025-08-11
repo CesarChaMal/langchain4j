@@ -13,7 +13,7 @@ https://ai.google.dev/gemini-api/docs
 <dependency>
     <groupId>dev.langchain4j</groupId>
     <artifactId>langchain4j-google-ai-gemini</artifactId>
-    <version>1.0.0-beta2</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
@@ -35,7 +35,7 @@ Check the list of [available models](https://ai.google.dev/gemini-api/docs/model
 The usual `chat(...)` methods are available:
 
 ```java
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
     ...
@@ -47,7 +47,7 @@ String response = gemini.chat("Hello Gemini!");
 As well, as the `ChatResponse chat(ChatRequest req)` method:
 
 ```java
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
     .build();
@@ -63,23 +63,37 @@ String response = chatResponse.aiMessage().text();
 ### Configuring
 
 ```java
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
+    .httpClientBuilder(...)
+    .defaultRequestParameters(...)
     .apiKey(System.getenv("GEMINI_AI_KEY"))
+    .baseUrl(...)
     .modelName("gemini-1.5-flash")
+    .maxRetries(...)
     .temperature(1.0)
     .topP(0.95)
     .topK(64)
+    .seed(42)
+    .frequencyPenalty(...)
+    .presencePenalty(...)
     .maxOutputTokens(8192)
     .timeout(Duration.ofSeconds(60))
-    .candidateCount(1)
     .responseFormat(ResponseFormat.JSON) // or .responseFormat(ResponseFormat.builder()...build()) 
     .stopSequences(List.of(...))
     .toolConfig(GeminiFunctionCallingConfig.builder()...build()) // or below
     .toolConfig(GeminiMode.ANY, List.of("fnOne", "fnTwo"))
     .allowCodeExecution(true)
-    .includeCodeExecution(output)
+    .includeCodeExecution(true)
     .logRequestsAndResponses(true)
     .safetySettings(List<GeminiSafetySetting> or Map<GeminiHarmCategory, GeminiHarmBlockThreshold>)
+    .thinkingConfig(...)
+    .returnThinking(true)
+    .sendThinking(true)
+    .responseLogprobs(...)
+    .logprobs(...)
+    .enableEnhancedCivicAnswers(...)
+    .listeners(...)
+    .supportedCapabilities(...)
     .build();
 ```
 
@@ -87,7 +101,7 @@ ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
 The `GoogleAiGeminiStreamingChatModel` allows streaming the text of a response token by token.
 The response must be handled by a `StreamingChatResponseHandler`. 
 ```java
-StreamingChatLanguageModel gemini = GoogleAiGeminiStreamingChatModel.builder()
+StreamingChatModel gemini = GoogleAiGeminiStreamingChatModel.builder()
         .apiKey(System.getenv("GEMINI_AI_KEY"))
         .modelName("gemini-1.5-flash")
         .build();
@@ -153,7 +167,7 @@ interface WeatherAssistant {
 WeatherForecastService weatherForecastService =
     new WeatherForecastService();
 
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
     .temperature(0.0)
@@ -161,7 +175,7 @@ ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
 
 WeatherAssistant weatherAssistant =
     AiServices.builder(WeatherAssistant.class)
-        .chatLanguageModel(gemini)
+        .chatModel(gemini)
         .tools(weatherForecastService)
         .build();
 
@@ -201,15 +215,15 @@ interface WeatherForecastAssistant {
 
 // Let's extract the data:
 
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
-    .responseFormat(ResponseFormat.JSON) // this is required to enable structured outputs feature
+    .supportedCapabilities(RESPONSE_FORMAT_JSON_SCHEMA) // this is required to enable structured outputs feature
     .build();
 
 WeatherForecastAssistant forecastAssistant =
     AiServices.builder(WeatherForecastAssistant.class)
-        .chatLanguageModel(gemini)
+        .chatModel(gemini)
         .build();
 
 WeatherForecast forecast = forecastAssistant.extract("""
@@ -254,7 +268,7 @@ ResponseFormat responseFormat = ResponseFormat.builder()
                 .build())
         .build();
 
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
         .apiKey(System.getenv("GEMINI_AI_KEY"))
         .modelName("gemini-1.5-flash")
         .responseFormat(responseFormat)
@@ -272,7 +286,7 @@ JsonSchema jsonSchema = JsonSchemas.jsonSchemaFrom(TripItinerary.class).get();
 
 Let's have a look at an example to define a JSON schema for a recipe when calling the `GoogleAiGeminiChatModel`:
 ```java
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
         .apiKey(System.getenv("GEMINI_AI_KEY"))
         .modelName("gemini-1.5-flash")
         .build();
@@ -294,7 +308,7 @@ System.out.println(chatResponse.aiMessage().text());
 You can force Gemini to reply in JSON:
 
 ```java
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
     .responseFormat(ResponseFormat.JSON)
@@ -317,7 +331,7 @@ Beyond function calling, Google AI Gemini allows to create and execute Python co
 This is particularly interesting for situations where more advanced calculations or logic is needed.
 
 ```java
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
     .allowCodeExecution(true)
@@ -392,27 +406,21 @@ Gemini is a multimodal model, which means it outputs text, but in input, it acce
 * videos (`VideoContent`)
 * audio files (`AudioContent`)
 * PDF files (`PdfFileContent`)
-* text documents (`TextFileContent`)
 
-The example below shows how to mix a text prompt, with an image, and a Markdown document:
+The example below shows how to mix a text prompt with an image:
 
 ```java
-// README.md markdown file from LangChain4j's project Github repos
-String base64Text = b64encoder.encodeToString(readBytes(
-  "https://github.com/langchain4j/langchain4j/blob/main/README.md"));
-
 // PNG of the cute colorful parrot mascot of the LangChain4j project
 String base64Img = b64encoder.encodeToString(readBytes(
   "https://avatars.githubusercontent.com/u/132277850?v=4"));
 
-ChatLanguageModel gemini = GoogleAiGeminiChatModel.builder()
+ChatModel gemini = GoogleAiGeminiChatModel.builder()
     .apiKey(System.getenv("GEMINI_AI_KEY"))
     .modelName("gemini-1.5-flash")
     .build();
 
 ChatResponse response = gemini.chat(
     UserMessage.from(
-        TextFileContent.from(base64Text, "text/x-markdown"),
         ImageContent.from(base64Img, "image/png"),
         TextContent.from("""
             Do you think this logo fits well
@@ -420,6 +428,43 @@ ChatResponse response = gemini.chat(
             """)
     )
 );
+```
+
+## Thinking
+
+Both `GoogleAiGeminiChatModel` and `GoogleAiGeminiStreamingChatModel`
+support [thinking](https://ai.google.dev/gemini-api/docs/thinking).
+
+The following parameters also control thinking behaviour:
+- `GeminiThinkingConfig.includeThoughts` and `thinkingBudget`: enables thinking, see more details [here](https://ai.google.dev/gemini-api/docs/thinking).
+- `returnThinking`: controls whether to return thinking (if available) inside `AiMessage.thinking()`
+  and whether to invoke `StreamingChatResponseHandler.onPartialThinking()` and `TokenStream.onPartialThinking()`
+  callbacks when using `GoogleAiGeminiStreamingChatModel`.
+  Disabled by default. If enabled, tinking signatures will also be stored and returned inside the `AiMessage.attributes()`.
+- `sendThinking`: controls whether to send thinking and signatures stored in `AiMessage` to the LLM in follow-up requests.
+Disabled by default.
+
+:::note
+Please note that when `returnThinking` is not set (is `null`) and `thinkingConfig` is set,
+thinking text will be prepended to the actual response inside the `AiMessage.text()` field
+and `StreamingChatResponseHandler.onPartialResponse()` will be invoked
+instead of `StreamingChatResponseHandler.onPartialThinking()`.
+:::
+
+Here is an example of how to configure thinking:
+```java
+GeminiThinkingConfig thinkingConfig = GeminiThinkingConfig.builder()
+        .includeThoughts(true)
+        .thinkingBudget(250)
+        .build();
+
+ChatModel model = GoogleAiGeminiChatModel.builder()
+        .apiKey(System.getenv("GOOGLE_AI_GEMINI_API_KEY"))
+        .modelName("gemini-2.5-flash")
+        .thinkingConfig(thinkingConfig)
+        .returnThinking(true)
+        .sendThinking(true)
+        .build();
 ```
 
 ## Learn more

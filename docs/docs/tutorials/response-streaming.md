@@ -14,8 +14,8 @@ token-by-token instead of waiting for the entire text to be generated.
 This significantly improves the user experience, as the user does not need to wait an unknown
 amount of time and can start reading the response almost immediately.
 
-For the `ChatLanguageModel` and `LanguageModel` interfaces, there are corresponding
-`StreamingChatLanguageModel` and `StreamingLanguageModel` interfaces.
+For the `ChatModel` and `LanguageModel` interfaces, there are corresponding
+`StreamingChatModel` and `StreamingLanguageModel` interfaces.
 These have a similar API but can stream the responses.
 They accept an implementation of the `StreamingChatResponseHandler` interface as an argument.
 
@@ -24,6 +24,12 @@ public interface StreamingChatResponseHandler {
 
     void onPartialResponse(String partialResponse);
 
+    default void onPartialThinking(PartialThinking partialThinking) {}
+
+    default void onPartialToolCall(PartialToolCall partialToolCall) {}
+
+    default void onCompleteToolCall(CompleteToolCall completeToolCall) {}
+
     void onCompleteResponse(ChatResponse completeResponse);
 
     void onError(Throwable error);
@@ -31,16 +37,20 @@ public interface StreamingChatResponseHandler {
 ```
 
 By implementing `StreamingChatResponseHandler`, you can define actions for the following events:
-- When the next partial response is generated: `onPartialResponse(String partialResponse)` is invoked.
-Partial response can consist of a single or more tokens.
+- When the next partial textual response is generated: `onPartialResponse(String)` is invoked.
+Depending on the LLM provider, partial response text can consist of a single or more tokens.
 For instance, you can send the token directly to the UI as soon as it becomes available.
-- When the LLM has completed generation: `onCompleteResponse(ChatResponse completeResponse)` is invoked.
+- When the next partial thinking/reasoning text is generated: `onPartialThinking(PartialThinking)` is invoked.
+Depending on the LLM provider, partial thinking text can consist of a single or more tokens.
+- When the next [partial tool call](/tutorials/tools#using-streamingchatmodel) is generated: `onPartialToolCall(PartialToolCall)` is invoked.
+- When the LLM has completed streaming for a single tool call: `onCompleteToolCall(CompleteToolCall)` is invoked.
+- When the LLM has completed generation: `onCompleteResponse(ChatResponse)` is invoked.
 The `ChatResponse` object contains the complete response (`AiMessage`) as well as `ChatResponseMetadata`.
 - When an error occurs: `onError(Throwable error)` is invoked.
 
-Below is an example of how to implement streaming with `StreamingChatLanguageModel`:
+Below is an example of how to implement streaming with `StreamingChatModel`:
 ```java
-StreamingChatLanguageModel model = OpenAiStreamingChatModel.builder()
+StreamingChatModel model = OpenAiStreamingChatModel.builder()
     .apiKey(System.getenv("OPENAI_API_KEY"))
     .modelName(GPT_4_O_MINI)
     .build();
@@ -52,6 +62,21 @@ model.chat(userMessage, new StreamingChatResponseHandler() {
     @Override
     public void onPartialResponse(String partialResponse) {
         System.out.println("onPartialResponse: " + partialResponse);
+    }
+
+    @Override
+    public void onPartialThinking(PartialThinking partialThinking) {
+        System.out.println("onPartialThinking: " + partialThinking);
+    }
+
+    @Override
+    public void onPartialToolCall(PartialToolCall partialToolCall) {
+        System.out.println("onPartialToolCall: " + partialToolCall);
+    }
+
+    @Override
+    public void onCompleteToolCall(CompleteToolCall completeToolCall) {
+        System.out.println("onCompleteToolCall: " + completeToolCall);
     }
 
     @Override

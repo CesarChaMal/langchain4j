@@ -16,7 +16,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.internal.Json;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -56,7 +57,7 @@ class GitHubModelsChatModelIT {
     @CsvSource({"gpt-4o"})
     void should_generate_answer_and_return_token_usage_and_finish_reason_stop(String modelName) {
 
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelName)
                 .logRequestsAndResponses(true)
@@ -80,7 +81,7 @@ class GitHubModelsChatModelIT {
     @CsvSource({"gpt-4o"})
     void should_generate_answer_and_return_token_usage_and_finish_reason_length(String modelName) {
 
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelName)
                 .maxTokens(3)
@@ -105,7 +106,7 @@ class GitHubModelsChatModelIT {
     @CsvSource({"gpt-4o"})
     void should_call_function_with_argument(String modelName) {
 
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelName)
                 .logRequestsAndResponses(true)
@@ -174,7 +175,7 @@ class GitHubModelsChatModelIT {
     @ParameterizedTest(name = "Model name {0}")
     @CsvSource({"gpt-4o"})
     void should_call_function_with_no_argument(String modelName) {
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelName)
                 .logRequestsAndResponses(true)
@@ -211,7 +212,7 @@ class GitHubModelsChatModelIT {
     @CsvSource({"gpt-4o"})
     void should_call_three_functions_in_parallel(String modelName) {
 
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelName)
                 .logRequestsAndResponses(true)
@@ -284,7 +285,7 @@ class GitHubModelsChatModelIT {
 
         // then
         assertThat(aiMessage2.text()).contains("4", "16", "512");
-        assertThat(aiMessage2.toolExecutionRequests()).isNull();
+        assertThat(aiMessage2.toolExecutionRequests()).isEmpty();
 
         TokenUsage tokenUsage2 = response2.tokenUsage();
         assertThat(tokenUsage2.inputTokenCount()).isGreaterThan(0);
@@ -298,7 +299,7 @@ class GitHubModelsChatModelIT {
     @ParameterizedTest(name = "Model name {0}")
     @CsvSource({"gpt-4o"})
     void should_use_json_format(String modelName) {
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelName)
                 .responseFormat(new ChatCompletionsResponseFormatJsonObject())
@@ -307,12 +308,14 @@ class GitHubModelsChatModelIT {
 
         SystemMessage systemMessage =
                 SystemMessage.systemMessage("You are a helpful assistant designed to output JSON.");
-        UserMessage userMessage = userMessage(
-                "List teams in the past French presidents, with their first name, last name, dates of service.");
+        UserMessage userMessage = userMessage("List teams in the past French presidents,last names only.");
 
         ChatResponse response = model.chat(systemMessage, userMessage);
 
-        assertThat(response.aiMessage().text()).contains("Chirac", "Sarkozy", "Hollande", "Macron");
+        final var jsonResponse = response.aiMessage().text();
+        //noinspection unchecked
+        assertThat(Json.fromJson(jsonResponse, Object.class)).isNotNull();
+        assertThat(jsonResponse).containsAnyOf("Chirac", "Sarkozy", "Hollande", "Macron");
         assertThat(response.finishReason()).isEqualTo(STOP);
     }
 
@@ -324,7 +327,7 @@ class GitHubModelsChatModelIT {
         String modelNameString = modelName.toString();
 
         int maxTokens = 3;
-        ChatLanguageModel model = GitHubModelsChatModel.builder()
+        ChatModel model = GitHubModelsChatModel.builder()
                 .gitHubToken(System.getenv("GITHUB_TOKEN"))
                 .modelName(modelNameString)
                 .maxTokens(maxTokens) // to save tokens

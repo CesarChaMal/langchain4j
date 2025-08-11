@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies.SnakeCaseStrategy;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
+
 import java.util.List;
 
 @JsonInclude(NON_NULL)
@@ -153,6 +154,21 @@ public class AnthropicCreateMessageRequest {
 
     public static Builder builder() {
         return new Builder();
+    }
+
+    public Builder toBuilder() {
+        return new Builder().model(this.model)
+                .messages(this.messages)
+                .system(this.system)
+                .maxTokens(this.maxTokens)
+                .stopSequences(this.stopSequences)
+                .stream(this.stream)
+                .temperature(this.temperature)
+                .topP(this.topP)
+                .topK(this.topK)
+                .tools(this.tools)
+                .toolChoice(this.toolChoice)
+                .thinking(this.thinking);
     }
 
     public static class Builder {

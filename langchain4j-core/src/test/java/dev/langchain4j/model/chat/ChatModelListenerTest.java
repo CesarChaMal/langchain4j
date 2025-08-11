@@ -23,7 +23,7 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 class ChatModelListenerTest {
 
-    static class TestChatModel implements ChatLanguageModel {
+    static class TestChatModel implements ChatModel {
 
         private final List<ChatModelListener> listeners;
 
@@ -95,6 +95,7 @@ class ChatModelListenerTest {
         inOrder.verify(listener1).onResponse(any());
         inOrder.verify(listener2).onResponse(any());
         inOrder.verifyNoMoreInteractions();
+        verifyNoMoreInteractions(listener1, listener2);
     }
 
     @Test

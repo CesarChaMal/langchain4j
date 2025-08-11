@@ -20,9 +20,10 @@ import java.util.List;
 import java.util.Map;
 
 import static dev.langchain4j.internal.RetryUtils.withRetry;
+import static dev.langchain4j.internal.RetryUtils.withRetryMappingExceptions;
 import static dev.langchain4j.internal.Utils.getOrDefault;
-import static dev.langchain4j.model.openai.InternalOpenAiHelper.DEFAULT_OPENAI_URL;
-import static dev.langchain4j.model.openai.InternalOpenAiHelper.DEFAULT_USER_AGENT;
+import static dev.langchain4j.model.openai.internal.OpenAiUtils.DEFAULT_OPENAI_URL;
+import static dev.langchain4j.model.openai.internal.OpenAiUtils.DEFAULT_USER_AGENT;
 import static dev.langchain4j.spi.ServiceHelper.loadFactories;
 import static java.time.Duration.ofSeconds;
 import static java.util.Collections.singletonList;
@@ -38,14 +39,6 @@ public class OpenAiModerationModel implements ModerationModel {
 
     public OpenAiModerationModel(OpenAiModerationModelBuilder builder) {
 
-        if ("demo".equals(builder.apiKey) && !"http://langchain4j.dev/demo/openai/v1".equals(builder.baseUrl)) {
-            // TODO remove before releasing 1.0.0
-            throw new RuntimeException("""
-                    If you wish to continue using the 'demo' key, please specify the base URL explicitly:
-                    OpenAiModerationModel.builder().baseUrl("http://langchain4j.dev/demo/openai/v1").apiKey("demo").build();
-                    """);
-        }
-
         this.client = OpenAiClient.builder()
                 .httpClientBuilder(builder.httpClientBuilder)
                 .baseUrl(getOrDefault(builder.baseUrl, DEFAULT_OPENAI_URL))
@@ -60,7 +53,7 @@ public class OpenAiModerationModel implements ModerationModel {
                 .customHeaders(builder.customHeaders)
                 .build();
         this.modelName = builder.modelName;
-        this.maxRetries = getOrDefault(builder.maxRetries, 3);
+        this.maxRetries = getOrDefault(builder.maxRetries, 2);
     }
 
     public String modelName() {
@@ -79,7 +72,7 @@ public class OpenAiModerationModel implements ModerationModel {
                 .input(inputs)
                 .build();
 
-        ModerationResponse response = withRetry(() -> client.moderation(request).execute(), maxRetries);
+        ModerationResponse response = withRetryMappingExceptions(() -> client.moderation(request).execute(), maxRetries);
 
         int i = 0;
         for (ModerationResult moderationResult : response.results()) {
@@ -113,16 +106,6 @@ public class OpenAiModerationModel implements ModerationModel {
         } else {
             throw new IllegalArgumentException("Unsupported message type: " + chatMessage.type());
         }
-    }
-
-    /**
-     * @deprecated Please use {@code builder()} instead, and explicitly set the model name and,
-     * if necessary, other parameters.
-     * <b>The default value for the model name will be removed in future releases!</b>
-     */
-    @Deprecated(forRemoval = true)
-    public static OpenAiModerationModel withApiKey(String apiKey) {
-        return builder().apiKey(apiKey).build();
     }
 
     public static OpenAiModerationModelBuilder builder() {

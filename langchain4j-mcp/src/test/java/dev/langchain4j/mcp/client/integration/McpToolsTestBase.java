@@ -1,20 +1,24 @@
 package dev.langchain4j.mcp.client.integration;
 
+import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.mcp.McpToolProvider;
 import dev.langchain4j.mcp.client.McpClient;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
 import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.tool.ToolExecutor;
 import dev.langchain4j.service.tool.ToolProvider;
 import dev.langchain4j.service.tool.ToolProviderResult;
-import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,35 +33,35 @@ public abstract class McpToolsTestBase {
         ToolProviderResult toolProviderResult = obtainTools();
 
         Map<ToolSpecification, ToolExecutor> tools = toolProviderResult.tools();
-        assertThat(tools).hasSize(6);
+        assertThat(tools).hasSize(7);
 
-        ToolSpecification echoString = findToolSpecificationByName(toolProviderResult, "echoString");
+        ToolSpecification echoString = toolProviderResult.toolSpecificationByName("echoString");
         assertThat(echoString.description()).isEqualTo("Echoes a string");
         JsonStringSchema echoStringParam =
                 (JsonStringSchema) echoString.parameters().properties().get("input");
         assertThat(echoStringParam.description()).isEqualTo("The string to be echoed");
 
-        ToolSpecification echoInteger = findToolSpecificationByName(toolProviderResult, "echoInteger");
+        ToolSpecification echoInteger = toolProviderResult.toolSpecificationByName("echoInteger");
         assertThat(echoInteger.description()).isEqualTo("Echoes an integer");
         JsonIntegerSchema echoIntegerParam =
                 (JsonIntegerSchema) echoInteger.parameters().properties().get("input");
         assertThat(echoIntegerParam.description()).isEqualTo("The integer to be echoed");
 
-        ToolSpecification echoBoolean = findToolSpecificationByName(toolProviderResult, "echoBoolean");
+        ToolSpecification echoBoolean = toolProviderResult.toolSpecificationByName("echoBoolean");
         assertThat(echoBoolean.description()).isEqualTo("Echoes a boolean");
         JsonBooleanSchema echoBooleanParam =
                 (JsonBooleanSchema) echoBoolean.parameters().properties().get("input");
         assertThat(echoBooleanParam.description()).isEqualTo("The boolean to be echoed");
 
-        ToolSpecification longOperation = findToolSpecificationByName(toolProviderResult, "longOperation");
+        ToolSpecification longOperation = toolProviderResult.toolSpecificationByName("longOperation");
         assertThat(longOperation.description()).isEqualTo("Takes 10 seconds to complete");
         assertThat(longOperation.parameters().properties()).isEmpty();
 
-        ToolSpecification error = findToolSpecificationByName(toolProviderResult, "error");
+        ToolSpecification error = toolProviderResult.toolSpecificationByName("error");
         assertThat(error.description()).isEqualTo("Throws a business error");
         assertThat(error.parameters().properties()).isEmpty();
 
-        ToolSpecification errorResponse = findToolSpecificationByName(toolProviderResult, "errorResponse");
+        ToolSpecification errorResponse = toolProviderResult.toolSpecificationByName("errorResponse");
         assertThat(errorResponse.description()).isEqualTo("Returns a response as an error");
         assertThat(errorResponse.parameters().properties()).isEmpty();
     }
@@ -65,7 +69,7 @@ public abstract class McpToolsTestBase {
     @Test
     public void executeTool() {
         ToolProviderResult toolProviderResult = obtainTools();
-        ToolExecutor executor = findToolExecutorByName(toolProviderResult, "echoString");
+        ToolExecutor executor = toolProviderResult.toolExecutorByName("echoString");
         ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
                 .name("echoString")
                 .arguments("{\"input\": \"abc\"}")
@@ -77,7 +81,7 @@ public abstract class McpToolsTestBase {
     @Test
     public void executeToolWithWrongArgumentType() {
         ToolProviderResult toolProviderResult = obtainTools();
-        ToolExecutor executor = findToolExecutorByName(toolProviderResult, "echoString");
+        ToolExecutor executor = toolProviderResult.toolExecutorByName("echoString");
         ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
                 .name("echoString")
                 .arguments("{\"input\": 1}") // wrong argument type
@@ -90,7 +94,7 @@ public abstract class McpToolsTestBase {
     @Test
     public void executeNonExistentTool() {
         ToolProviderResult toolProviderResult = obtainTools();
-        ToolExecutor executor = findToolExecutorByName(toolProviderResult, "echoString");
+        ToolExecutor executor = toolProviderResult.toolExecutorByName("echoString");
         ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
                 .name("THIS-TOOL-DOES-NOT-EXIST")
                 .arguments("{\"input\": 1}")
@@ -104,7 +108,7 @@ public abstract class McpToolsTestBase {
     @Test
     public void executeToolThatThrowsBusinessError() {
         ToolProviderResult toolProviderResult = obtainTools();
-        ToolExecutor executor = findToolExecutorByName(toolProviderResult, "error");
+        ToolExecutor executor = toolProviderResult.toolExecutorByName("error");
         ToolExecutionRequest toolExecutionRequest =
                 ToolExecutionRequest.builder().name("error").arguments("{}").build();
         String toolExecutionResultString = executor.execute(toolExecutionRequest, null);
@@ -115,7 +119,7 @@ public abstract class McpToolsTestBase {
     @Test
     public void executeToolThatReturnsError() {
         ToolProviderResult toolProviderResult = obtainTools();
-        ToolExecutor executor = findToolExecutorByName(toolProviderResult, "errorResponse");
+        ToolExecutor executor = toolProviderResult.toolExecutorByName("errorResponse");
         ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
                 .name("errorResponse")
                 .arguments("{}")
@@ -128,7 +132,7 @@ public abstract class McpToolsTestBase {
     @Test
     public void timeout() {
         ToolProviderResult toolProviderResult = obtainTools();
-        ToolExecutor executor = findToolExecutorByName(toolProviderResult, "longOperation");
+        ToolExecutor executor = toolProviderResult.toolExecutorByName("longOperation");
         ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
                 .name("longOperation")
                 .arguments("{}")
@@ -137,24 +141,37 @@ public abstract class McpToolsTestBase {
         assertThat(toolExecutionResultString).isEqualTo("There was a timeout executing the tool");
     }
 
-    ToolProviderResult obtainTools() {
+    // this is specifically for 'executeToolWithUntypedArrayParameter'
+    OpenAiChatModel chatModel = OpenAiChatModel.builder()
+            .baseUrl(System.getenv("OPENAI_BASE_URL"))
+            .apiKey(System.getenv("OPENAI_API_KEY"))
+            .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
+            .modelName(GPT_4_O_MINI)
+            .temperature(0.0)
+            .logRequests(true)
+            .logResponses(true)
+            .build();
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
+    public void executeToolWithUntypedArrayParameter() {
         ToolProvider toolProvider =
-                McpToolProvider.builder().mcpClients(List.of(mcpClient)).build();
-        return toolProvider.provideTools(null);
+                McpToolProvider.builder().mcpClients(mcpClient).build();
+        ChatService service = AiServices.builder(ChatService.class)
+                .toolProvider(toolProvider)
+                .chatMemory(MessageWindowChatMemory.withMaxMessages(10))
+                .chatModel(chatModel)
+                .build();
+        String response = service.chat(
+                "Call the tool named 'untypedArray' with this array as the 'arr' parameter: [0, \"abs\", null], and pass me the result.");
+        assertThat(response).contains("6789");
     }
 
-    ToolSpecification findToolSpecificationByName(ToolProviderResult toolProviderResult, String name) {
-        return toolProviderResult.tools().keySet().stream()
-                .filter(toolSpecification -> toolSpecification.name().equals(name))
-                .findFirst()
-                .get();
+    interface ChatService {
+        String chat(String prompt);
     }
 
-    ToolExecutor findToolExecutorByName(ToolProviderResult toolProviderResult, String name) {
-        return toolProviderResult.tools().entrySet().stream()
-                .filter(entry -> entry.getKey().name().equals(name))
-                .findFirst()
-                .get()
-                .getValue();
+    ToolProviderResult obtainTools() {
+        return McpToolProvider.builder().mcpClients(mcpClient).build().provideTools(null);
     }
 }

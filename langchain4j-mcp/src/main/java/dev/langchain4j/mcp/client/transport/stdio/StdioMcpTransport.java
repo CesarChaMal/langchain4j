@@ -1,10 +1,12 @@
 package dev.langchain4j.mcp.client.transport.stdio;
 
+import static dev.langchain4j.internal.ValidationUtils.ensureNotEmpty;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.mcp.client.protocol.InitializationNotification;
 import dev.langchain4j.mcp.client.protocol.McpClientMessage;
+import dev.langchain4j.mcp.client.protocol.McpInitializationNotification;
 import dev.langchain4j.mcp.client.protocol.McpInitializeRequest;
 import dev.langchain4j.mcp.client.transport.McpOperationHandler;
 import dev.langchain4j.mcp.client.transport.McpTransport;
@@ -25,6 +27,7 @@ public class StdioMcpTransport implements McpTransport {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(StdioMcpTransport.class);
     private volatile McpOperationHandler messageHandler;
+    private ProcessStderrHandler stderrHandler;
 
     public StdioMcpTransport(Builder builder) {
         this.command = builder.command;
@@ -50,14 +53,15 @@ public class StdioMcpTransport implements McpTransport {
         processIOHandler = new ProcessIOHandler(process, messageHandler, logEvents);
         // FIXME: where should we obtain the thread?
         new Thread(processIOHandler).start();
-        new Thread(new ProcessStderrHandler(process)).start();
+        stderrHandler = new ProcessStderrHandler(process);
+        new Thread(stderrHandler).start();
     }
 
     @Override
     public CompletableFuture<JsonNode> initialize(McpInitializeRequest operation) {
         try {
             String requestString = OBJECT_MAPPER.writeValueAsString(operation);
-            String initializationNotification = OBJECT_MAPPER.writeValueAsString(new InitializationNotification());
+            String initializationNotification = OBJECT_MAPPER.writeValueAsString(new McpInitializationNotification());
             return execute(requestString, operation.getId())
                     .thenCompose(originalResponse -> execute(initializationNotification, null)
                             .thenCompose(nullNode -> CompletableFuture.completedFuture(originalResponse)));
@@ -87,7 +91,27 @@ public class StdioMcpTransport implements McpTransport {
     }
 
     @Override
+    public void checkHealth() {
+        if (!process.isAlive()) {
+            throw new IllegalStateException("Process is not alive");
+        }
+    }
+
+    @Override
+    public void onFailure(Runnable actionOnFailure) {
+        // ignore, for stdio transport, we currently don't do reconnection attempts
+    }
+
+    @Override
     public void close() throws IOException {
+        try {
+            stderrHandler.close();
+        } catch (Exception ignored) {
+        }
+        try {
+            processIOHandler.close();
+        } catch (Exception ignored) {
+        }
         process.destroy();
     }
 
@@ -106,6 +130,10 @@ public class StdioMcpTransport implements McpTransport {
             future.completeExceptionally(e);
         }
         return future;
+    }
+
+    public Process getProcess() {
+        return process;
     }
 
     public static class Builder {
@@ -130,9 +158,7 @@ public class StdioMcpTransport implements McpTransport {
         }
 
         public StdioMcpTransport build() {
-            if (command == null || command.isEmpty()) {
-                throw new IllegalArgumentException("Missing command");
-            }
+            ensureNotEmpty(command, "command");
             if (environment == null) {
                 environment = Map.of();
             }

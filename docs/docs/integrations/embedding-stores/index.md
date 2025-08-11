@@ -7,6 +7,7 @@ sidebar_position: 0
 | Embedding Store                                                                       | Storing Metadata | Filtering by Metadata      | Removing Embeddings |
 |---------------------------------------------------------------------------------------|------------------|----------------------------|---------------------|
 | [In-memory](/integrations/embedding-stores/in-memory)                                 | ✅                | ✅                          | ✅                   |
+| [AlloyDB for Postgres](/integrations/embedding-stores/alloydb)                                     | ✅               | ✅                         | ✅                  |
 | [Astra DB](/integrations/embedding-stores/astra-db)                                   | ✅                |                            |                     |
 | [Azure AI Search](/integrations/embedding-stores/azure-ai-search)                     | ✅                | ✅                          | ✅                   |
 | [Azure CosmosDB Mongo vCore](/integrations/embedding-stores/azure-cosmos-mongo-vcore) | ✅                |                            |                     |
@@ -14,11 +15,12 @@ sidebar_position: 0
 | [Cassandra](/integrations/embedding-stores/cassandra)                                 | ✅                |                            |                     |
 | [Chroma](/integrations/embedding-stores/chroma)                                       | ✅                | ✅                          | ✅                   |
 | [ClickHouse](/integrations/embedding-stores/clickhouse)                               | ✅                | ✅                          | ✅                   |
+| [Cloud SQL for Postgres](/integrations/embedding-stores/cloud-sql)                    | ✅                | ✅                          | ✅                   |
 | [Coherence](/integrations/embedding-stores/coherence)                                 | ✅                | ✅                          | ✅                   |
 | [Couchbase](/integrations/embedding-stores/couchbase)                                 | ✅                |                            | ✅                   |
 | [DuckDB](/integrations/embedding-stores/duckdb)                                       | ✅                | ✅                          | ✅                   |
 | [Elasticsearch](/integrations/embedding-stores/elasticsearch)                         | ✅                | ✅                          | ✅                   |
-| [Infinispan](/integrations/embedding-stores/infinispan)                               | ✅                |                            |                     |
+| [Infinispan](/integrations/embedding-stores/infinispan)                               | ✅                | ✅                            | ✅                     |
 | [Milvus](/integrations/embedding-stores/milvus)                                       | ✅                | ✅                          | ✅                   |
 | [MongoDB Atlas](/integrations/embedding-stores/mongodb-atlas)                         | ✅                | ✅                          | ✅                   |
 | [Neo4j](/integrations/embedding-stores/neo4j)                                         | ✅                |                            |                     |
@@ -31,4 +33,4 @@ sidebar_position: 0
 | [Tablestore](/integrations/embedding-stores/tablestore)                               | ✅                | ✅                          | ✅                   |
 | [Vearch](/integrations/embedding-stores/vearch)                                       | ✅                |                            |                     |
 | [Vespa](/integrations/embedding-stores/vespa)                                         |                  |                            |                     |
-| [Weaviate](/integrations/embedding-stores/weaviate)                                   | ✅                |                            | ✅                   |
+| [Weaviate](/integrations/embedding-stores/weaviate)                                   | ✅               |                            | ✅                  |

@@ -1,7 +1,9 @@
 package dev.langchain4j.model.openai;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -9,11 +11,14 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.AudioContent;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ImageContent;
+import dev.langchain4j.data.message.PdfFileContent;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.Tokenizer;
-import dev.langchain4j.model.chat.ChatLanguageModel;
+import dev.langchain4j.data.pdf.PdfFile;
+import dev.langchain4j.http.client.SuccessfulHttpResponse;
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
@@ -29,6 +34,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 
 import static dev.langchain4j.data.message.ToolExecutionResultMessage.from;
 import static dev.langchain4j.data.message.UserMessage.userMessage;
@@ -67,7 +73,7 @@ class OpenAiChatModelIT {
             .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
             .modelName(GPT_4_O_MINI)
             .temperature(0.0)
-            .logRequests(true)
+            .logRequests(false) // base64-encoded images are huge in logs
             .logResponses(true)
             .build();
 
@@ -99,8 +105,10 @@ class OpenAiChatModelIT {
             names = {
                     "GPT_4_32K", // don't have access
                     "GPT_4_32K_0613", // don't have access
-                    "O1", // don't have access
-                    "O1_2024_12_17", // don't have access
+                    "O3", // don't have access
+                    "O3_2025_04_16", // don't have access
+                    "O1_MINI", // does not support 'system' role with this model
+                    "O1_MINI_2024_09_12", // does not support 'system' role with this model
             })
     void should_support_all_model_names(OpenAiChatModelName modelName) {
 
@@ -114,13 +122,15 @@ class OpenAiChatModelIT {
                 .logResponses(true)
                 .build();
 
-        String question = "What is the capital of Germany?";
+        ChatRequest chatRequest = ChatRequest.builder()
+                .messages(SystemMessage.from("Be concise"), UserMessage.from("What is the capital of Germany?"))
+                .build();
 
         // when
-        String answer = model.chat(question);
+        ChatResponse chatResponse = model.chat(chatRequest);
 
         // then
-        assertThat(answer).containsIgnoringCase("Berlin");
+        assertThat(chatResponse.aiMessage().text()).containsIgnoringCase("Berlin");
     }
 
     @Test
@@ -129,7 +139,7 @@ class OpenAiChatModelIT {
         // given
         int maxTokens = 1;
 
-        ChatLanguageModel model = OpenAiChatModel.builder()
+        ChatModel model = OpenAiChatModel.builder()
                 .baseUrl(System.getenv("OPENAI_BASE_URL"))
                 .apiKey(System.getenv("OPENAI_API_KEY"))
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -160,7 +170,7 @@ class OpenAiChatModelIT {
         // given
         int maxCompletionTokens = 1;
 
-        ChatLanguageModel model = OpenAiChatModel.builder()
+        ChatModel model = OpenAiChatModel.builder()
                 .baseUrl(System.getenv("OPENAI_BASE_URL"))
                 .apiKey(System.getenv("OPENAI_API_KEY"))
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -227,7 +237,7 @@ class OpenAiChatModelIT {
         // then
         AiMessage secondAiMessage = secondResponse.aiMessage();
         assertThat(secondAiMessage.text()).contains("4");
-        assertThat(secondAiMessage.toolExecutionRequests()).isNull();
+        assertThat(secondAiMessage.toolExecutionRequests()).isEmpty();
 
         TokenUsage secondTokenUsage = secondResponse.tokenUsage();
         assertThat(secondTokenUsage.inputTokenCount()).isPositive();
@@ -284,7 +294,7 @@ class OpenAiChatModelIT {
         // then
         AiMessage secondAiMessage = secondResponse.aiMessage();
         assertThat(secondAiMessage.text()).contains("4");
-        assertThat(secondAiMessage.toolExecutionRequests()).isNull();
+        assertThat(secondAiMessage.toolExecutionRequests()).isEmpty();
 
         TokenUsage secondTokenUsage = secondResponse.tokenUsage();
         assertThat(secondTokenUsage.inputTokenCount()).isPositive();
@@ -299,7 +309,7 @@ class OpenAiChatModelIT {
     void should_execute_multiple_tools_in_parallel_then_answer() {
 
         // given
-        ChatLanguageModel model = OpenAiChatModel.builder()
+        ChatModel model = OpenAiChatModel.builder()
                 .baseUrl(System.getenv("OPENAI_BASE_URL"))
                 .apiKey(System.getenv("OPENAI_API_KEY"))
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -354,7 +364,7 @@ class OpenAiChatModelIT {
         // then
         AiMessage secondAiMessage = secondResponse.aiMessage();
         assertThat(secondAiMessage.text()).contains("4", "6");
-        assertThat(secondAiMessage.toolExecutionRequests()).isNull();
+        assertThat(secondAiMessage.toolExecutionRequests()).isEmpty();
 
         TokenUsage secondTokenUsage = secondResponse.tokenUsage();
         assertThat(secondTokenUsage.inputTokenCount()).isPositive();
@@ -378,7 +388,7 @@ class OpenAiChatModelIT {
 
         String responseFormat = "json_object";
 
-        ChatLanguageModel modelGeneratingJson = OpenAiChatModel.builder()
+        ChatModel modelGeneratingJson = OpenAiChatModel.builder()
                 .baseUrl(System.getenv("OPENAI_BASE_URL"))
                 .apiKey(System.getenv("OPENAI_API_KEY"))
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -474,16 +484,6 @@ class OpenAiChatModelIT {
     }
 
     @Test
-    void should_use_default_tokenizer() {
-
-        // when
-        int tokenCount = model.estimateTokenCount("Hello, how are you doing?");
-
-        // then
-        assertThat(tokenCount).isEqualTo(14);
-    }
-
-    @Test
     void should_accept_audio_content() throws Exception {
 
         // given
@@ -509,41 +509,6 @@ class OpenAiChatModelIT {
 
         // then
         assertThat(response.aiMessage().text()).containsIgnoringCase("hello");
-    }
-
-    @Test
-    void should_use_custom_tokenizer() {
-
-        // given
-
-        Tokenizer tokenizer = new Tokenizer() {
-
-            @Override
-            public int estimateTokenCountInText(String text) {
-                return 42;
-            }
-
-            @Override
-            public int estimateTokenCountInMessage(ChatMessage message) {
-                return 42;
-            }
-
-            @Override
-            public int estimateTokenCountInMessages(Iterable<ChatMessage> messages) {
-                return 42;
-            }
-        };
-
-        OpenAiChatModel model = OpenAiChatModel.builder()
-                .apiKey("does not matter")
-                .tokenizer(tokenizer)
-                .build();
-
-        // when
-        int tokenCount = model.estimateTokenCount("Hello, how are you doing?");
-
-        // then
-        assertThat(tokenCount).isEqualTo(42);
     }
 
     @Test
@@ -587,5 +552,76 @@ class OpenAiChatModelIT {
                 .outputTokensDetails()
                 .reasoningTokens();
         assertThat(lowReasoningTokens).isLessThan(mediumReasoningTokens);
+    }
+
+    @Test
+    void should_accept_pdf_file_content() throws Exception {
+
+        // given
+        Path file = Paths.get(getClass().getClassLoader().getResource("sample.pdf").toURI());
+        String pdfBase64 = Base64.getEncoder().encodeToString(Files.readAllBytes(file));
+        PdfFile pdfFile = PdfFile.builder()
+                .base64Data(pdfBase64)
+                .mimeType("application/pdf")
+                .build();
+
+        UserMessage userMessage = UserMessage.builder()
+                .addContent(TextContent.from("What information is in the attached PDF? Return only the exacted text."))
+                .addContent(PdfFileContent.from(pdfFile))
+                .build();
+
+        // when
+        ChatResponse response = model.chat(userMessage);
+
+        // then
+        assertThat(response.aiMessage().text())
+                .containsIgnoringCase("Berlin")
+                .containsIgnoringCase("capital")
+                .containsIgnoringCase("Germany");
+    }
+
+    @Test
+    void should_set_custom_parameters_and_get_raw_response() throws JsonProcessingException {
+
+        // given
+        String city = "Munich";
+
+        record ApproximateLocation(String city) {
+        }
+        record UserLocation(String type, ApproximateLocation approximate) {
+        }
+        record WebSearchOptions(@JsonProperty("user_location") UserLocation userLocation) {
+        }
+
+        WebSearchOptions webSearchOptions = new WebSearchOptions(new UserLocation("approximate", new ApproximateLocation(city)));
+        Map<String, Object> customParameters = Map.of("web_search_options", webSearchOptions);
+
+        ChatRequest chatRequest = ChatRequest.builder()
+                .messages(UserMessage.from("Where can I buy good coffee?"))
+                .parameters(OpenAiChatRequestParameters.builder()
+                        .modelName("gpt-4o-mini-search-preview")
+                        .customParameters(customParameters)
+                        .maxOutputTokens(20) // to save tokens
+                        .build())
+                .build();
+
+        ChatModel model = OpenAiChatModel.builder()
+                .baseUrl(System.getenv("OPENAI_BASE_URL"))
+                .apiKey(System.getenv("OPENAI_API_KEY"))
+                .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
+                .logRequests(true)
+                .logResponses(true)
+                .build();
+
+        // when
+        ChatResponse chatResponse = model.chat(chatRequest);
+
+        // then
+        assertThat(chatResponse.aiMessage().text()).contains(city);
+
+        SuccessfulHttpResponse rawResponse = ((OpenAiChatResponseMetadata) chatResponse.metadata()).rawHttpResponse();
+        JsonNode jsonNode = new ObjectMapper().readTree(rawResponse.body());
+        assertThat(jsonNode.get("choices").get(0).get("message").get("annotations").get(0).get("type").asText())
+                .isEqualTo("url_citation");
     }
 }

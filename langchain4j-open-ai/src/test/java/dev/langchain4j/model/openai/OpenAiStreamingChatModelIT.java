@@ -1,5 +1,22 @@
 package dev.langchain4j.model.openai;
 
+import static dev.langchain4j.data.message.ToolExecutionResultMessage.from;
+import static dev.langchain4j.data.message.UserMessage.userMessage;
+import static dev.langchain4j.internal.Utils.readBytes;
+import static dev.langchain4j.model.chat.request.ToolChoice.REQUIRED;
+import static dev.langchain4j.model.openai.OpenAiChatModelIT.CAT_IMAGE_URL;
+import static dev.langchain4j.model.openai.OpenAiChatModelIT.DICE_IMAGE_URL;
+import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_1_NANO;
+import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
+import static dev.langchain4j.model.output.FinishReason.LENGTH;
+import static dev.langchain4j.model.output.FinishReason.STOP;
+import static dev.langchain4j.model.output.FinishReason.TOOL_EXECUTION;
+import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,8 +28,8 @@ import dev.langchain4j.data.message.ImageContent;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.Tokenizer;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.http.client.sse.ServerSentEvent;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.TestStreamingChatResponseHandler;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
@@ -20,30 +37,15 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.TokenUsage;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-
-import java.util.Base64;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-
-import static dev.langchain4j.data.message.ToolExecutionResultMessage.from;
-import static dev.langchain4j.data.message.UserMessage.userMessage;
-import static dev.langchain4j.internal.Utils.readBytes;
-import static dev.langchain4j.model.chat.request.ToolChoice.REQUIRED;
-import static dev.langchain4j.model.openai.OpenAiChatModelIT.CAT_IMAGE_URL;
-import static dev.langchain4j.model.openai.OpenAiChatModelIT.DICE_IMAGE_URL;
-import static dev.langchain4j.model.openai.OpenAiChatModelName.GPT_4_O_MINI;
-import static dev.langchain4j.model.output.FinishReason.LENGTH;
-import static dev.langchain4j.model.output.FinishReason.STOP;
-import static dev.langchain4j.model.output.FinishReason.TOOL_EXECUTION;
-import static java.util.Arrays.asList;
-import static java.util.Collections.singletonList;
-import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.params.provider.EnumSource.Mode.EXCLUDE;
+import org.junitpioneer.jupiter.RetryingTest;
 
 @EnabledIfEnvironmentVariable(named = "OPENAI_API_KEY", matches = ".+")
 class OpenAiStreamingChatModelIT {
@@ -52,9 +54,10 @@ class OpenAiStreamingChatModelIT {
             .baseUrl(System.getenv("OPENAI_BASE_URL"))
             .apiKey(System.getenv("OPENAI_API_KEY"))
             .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
-            .modelName(GPT_4_O_MINI)
+            .modelName(GPT_4_1_NANO)
             .temperature(0.0)
-            .logRequests(true)
+            .maxTokens(50)
+            .logRequests(false) // base64-encoded images are huge in logs
             .logResponses(true)
             .build();
 
@@ -108,7 +111,7 @@ class OpenAiStreamingChatModelIT {
     }
 
     @Test
-    void should_respoct_maxTokens() throws Exception {
+    void should_respect_maxTokens() throws Exception {
 
         // given
         int maxTokens = 1;
@@ -130,8 +133,7 @@ class OpenAiStreamingChatModelIT {
         model.chat("Tell me a long story", new StreamingChatResponseHandler() {
 
             @Override
-            public void onPartialResponse(String partialResponse) {
-            }
+            public void onPartialResponse(String partialResponse) {}
 
             @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
@@ -153,7 +155,7 @@ class OpenAiStreamingChatModelIT {
     }
 
     @Test
-    void should_respoct_maxCompletionTokens() throws Exception {
+    void should_respect_maxCompletionTokens() throws Exception {
 
         // given
         int maxCompletionTokens = 1;
@@ -175,8 +177,7 @@ class OpenAiStreamingChatModelIT {
         model.chat("Tell me a long story", new StreamingChatResponseHandler() {
 
             @Override
-            public void onPartialResponse(String partialResponse) {
-            }
+            public void onPartialResponse(String partialResponse) {}
 
             @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
@@ -198,6 +199,7 @@ class OpenAiStreamingChatModelIT {
     }
 
     @Test
+    @RetryingTest(value = 2, suspendForMs = 1500)
     void should_execute_a_tool_then_stream_answer() throws Exception {
 
         // given
@@ -205,6 +207,7 @@ class OpenAiStreamingChatModelIT {
 
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(userMessage)
+                .maxOutputTokens(20)
                 .toolSpecifications(calculator)
                 .build();
 
@@ -215,7 +218,8 @@ class OpenAiStreamingChatModelIT {
 
             @Override
             public void onPartialResponse(String partialResponse) {
-                Exception e = new IllegalStateException("onPartialResponse() should never be called when tool is executed");
+                Exception e =
+                        new IllegalStateException("onPartialResponse() should never be called when tool is executed");
                 futureResponse.completeExceptionally(e);
             }
 
@@ -230,7 +234,7 @@ class OpenAiStreamingChatModelIT {
             }
         });
 
-        ChatResponse response = futureResponse.get(30, SECONDS);
+        ChatResponse response = futureResponse.get(10, SECONDS);
         AiMessage aiMessage = response.aiMessage();
 
         // then
@@ -258,8 +262,7 @@ class OpenAiStreamingChatModelIT {
         model.chat(messages, new StreamingChatResponseHandler() {
 
             @Override
-            public void onPartialResponse(String partialResponse) {
-            }
+            public void onPartialResponse(String partialResponse) {}
 
             @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
@@ -277,11 +280,44 @@ class OpenAiStreamingChatModelIT {
 
         // then
         assertThat(secondAiMessage.text()).contains("4");
-        assertThat(secondAiMessage.toolExecutionRequests()).isNull();
+        assertThat(secondAiMessage.toolExecutionRequests()).isEmpty();
 
         assertTokenUsage(secondResponse.tokenUsage());
 
         assertThat(secondResponse.finishReason()).isEqualTo(STOP);
+    }
+
+    @Test
+    void should_execute_a_tool_with_blank_partial_arguments() {
+
+        // given
+        ToolSpecification appendToFile = ToolSpecification.builder()
+                .name("append_to_file")
+                .parameters(JsonObjectSchema.builder()
+                        .addStringProperty("text")
+                        .required("text")
+                        .build())
+                .build();
+
+        UserMessage userMessage = UserMessage.from("Append to file the following text: '          '");
+
+        ChatRequest chatRequest = ChatRequest.builder()
+                .messages(userMessage)
+                .maxOutputTokens(30)
+                .toolSpecifications(appendToFile)
+                .build();
+
+        // when
+        TestStreamingChatResponseHandler handler = new TestStreamingChatResponseHandler();
+        model.chat(chatRequest, handler);
+
+        // then
+        AiMessage aiMessage = handler.get().aiMessage();
+        assertThat(aiMessage.toolExecutionRequests()).hasSize(1);
+
+        ToolExecutionRequest toolExecutionRequest = aiMessage.toolExecutionRequests().get(0);
+        assertThat(toolExecutionRequest.name()).isEqualTo("append_to_file");
+        assertThat(toolExecutionRequest.arguments()).isEqualTo("{\"text\":\"          \"}");
     }
 
     @Test
@@ -305,7 +341,8 @@ class OpenAiStreamingChatModelIT {
 
             @Override
             public void onPartialResponse(String partialResponse) {
-                Exception e = new IllegalStateException("onPartialResponse() should never be called when tool is executed");
+                Exception e =
+                        new IllegalStateException("onPartialResponse() should never be called when tool is executed");
                 futureResponse.completeExceptionally(e);
             }
 
@@ -348,8 +385,7 @@ class OpenAiStreamingChatModelIT {
         model.chat(messages, new StreamingChatResponseHandler() {
 
             @Override
-            public void onPartialResponse(String partialResponse) {
-            }
+            public void onPartialResponse(String partialResponse) {}
 
             @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
@@ -367,7 +403,7 @@ class OpenAiStreamingChatModelIT {
 
         // then
         assertThat(secondAiMessage.text()).contains("4");
-        assertThat(secondAiMessage.toolExecutionRequests()).isNull();
+        assertThat(secondAiMessage.toolExecutionRequests()).isEmpty();
 
         assertTokenUsage(secondResponse.tokenUsage());
 
@@ -378,7 +414,7 @@ class OpenAiStreamingChatModelIT {
     void should_execute_multiple_tools_in_parallel_then_stream_answer() throws Exception {
 
         // given
-        StreamingChatLanguageModel model = OpenAiStreamingChatModel.builder()
+        StreamingChatModel model = OpenAiStreamingChatModel.builder()
                 .baseUrl(System.getenv("OPENAI_BASE_URL"))
                 .apiKey(System.getenv("OPENAI_API_KEY"))
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -402,7 +438,8 @@ class OpenAiStreamingChatModelIT {
 
             @Override
             public void onPartialResponse(String partialResponse) {
-                Exception e = new IllegalStateException("onPartialResponse() should never be called when tool is executed");
+                Exception e =
+                        new IllegalStateException("onPartialResponse() should never be called when tool is executed");
                 futureResponse.completeExceptionally(e);
             }
 
@@ -451,8 +488,7 @@ class OpenAiStreamingChatModelIT {
         model.chat(messages, new StreamingChatResponseHandler() {
 
             @Override
-            public void onPartialResponse(String partialResponse) {
-            }
+            public void onPartialResponse(String partialResponse) {}
 
             @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
@@ -470,7 +506,7 @@ class OpenAiStreamingChatModelIT {
 
         // then
         assertThat(secondAiMessage.text()).contains("4", "6");
-        assertThat(secondAiMessage.toolExecutionRequests()).isNull();
+        assertThat(secondAiMessage.toolExecutionRequests()).isEmpty();
 
         assertTokenUsage(secondResponse.tokenUsage());
 
@@ -482,15 +518,14 @@ class OpenAiStreamingChatModelIT {
 
         // given
         @JsonIgnoreProperties(ignoreUnknown = true) // to ignore the "joke" field
-        record Person(String name, String surname) {
-        }
+        record Person(String name, String surname) {}
 
         String responseFormat = "json_object";
 
         String userMessage = "Return JSON with two fields: name and surname of Klaus Heisler. "
                 + "Before returning, tell me a joke."; // nudging it to say something additionally to json
 
-        StreamingChatLanguageModel model = OpenAiStreamingChatModel.builder()
+        StreamingChatModel model = OpenAiStreamingChatModel.builder()
                 .baseUrl(System.getenv("OPENAI_BASE_URL"))
                 .apiKey(System.getenv("OPENAI_API_KEY"))
                 .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
@@ -602,10 +637,12 @@ class OpenAiStreamingChatModelIT {
             value = OpenAiChatModelName.class,
             mode = EXCLUDE,
             names = {
-                    "GPT_4_32K", // don't have access
-                    "GPT_4_32K_0613", // don't have access
-                    "O1", // don't have access
-                    "O1_2024_12_17", // don't have access
+                "GPT_4_32K", // don't have access
+                "GPT_4_32K_0613", // don't have access
+                "O1", // don't have access
+                "O1_2024_12_17", // don't have access
+                "O3", // don't have access
+                "O3_2025_04_16", // don't have access
             })
     void should_support_all_model_names(OpenAiChatModelName modelName) {
 
@@ -631,48 +668,43 @@ class OpenAiStreamingChatModelIT {
     }
 
     @Test
-    void should_use_default_tokenizer() {
-
-        // when
-        int tokenCount = model.estimateTokenCount("Hello, how are you doing?");
-
-        // then
-        assertThat(tokenCount).isEqualTo(14);
-    }
-
-    @Test
-    void should_use_custom_tokenizer() {
+    void should_set_custom_parameters_and_get_raw_response() throws JsonProcessingException {
 
         // given
+        String city = "Munich";
 
-        Tokenizer tokenizer = new Tokenizer() {
+        Map<String, Object> customParameters = Map.of("web_search_options", Map.of("user_location", Map.of(
+                "type", "approximate",
+                "approximate", Map.of("city", city)
+        )));
 
-            @Override
-            public int estimateTokenCountInText(String text) {
-                return 42;
-            }
+        ChatRequest chatRequest = ChatRequest.builder()
+                .messages(UserMessage.from("Where can I buy good coffee?"))
+                .parameters(OpenAiChatRequestParameters.builder()
+                        .modelName("gpt-4o-mini-search-preview")
+                        .customParameters(customParameters)
+                        .maxOutputTokens(20) // to save tokens
+                        .build())
+                .build();
 
-            @Override
-            public int estimateTokenCountInMessage(ChatMessage message) {
-                return 42;
-            }
-
-            @Override
-            public int estimateTokenCountInMessages(Iterable<ChatMessage> messages) {
-                return 42;
-            }
-        };
-
-        OpenAiChatModel model = OpenAiChatModel.builder()
-                .apiKey("does not matter")
-                .tokenizer(tokenizer)
+        StreamingChatModel model = OpenAiStreamingChatModel.builder()
+                .baseUrl(System.getenv("OPENAI_BASE_URL"))
+                .apiKey(System.getenv("OPENAI_API_KEY"))
+                .organizationId(System.getenv("OPENAI_ORGANIZATION_ID"))
+                .logRequests(true)
+                .logResponses(true)
                 .build();
 
         // when
-        int tokenCount = model.estimateTokenCount("Hello, how are you doing?");
+        TestStreamingChatResponseHandler handler = new TestStreamingChatResponseHandler();
+        model.chat(chatRequest, handler);
+        ChatResponse chatResponse = handler.get();
 
         // then
-        assertThat(tokenCount).isEqualTo(42);
+        assertThat(chatResponse.aiMessage().text()).contains(city);
+
+        List<ServerSentEvent> rawEvents = ((OpenAiChatResponseMetadata) chatResponse.metadata()).rawServerSentEvents();
+        assertThat(rawEvents.stream().filter(event -> event.data().contains("url_citation"))).isNotEmpty();
     }
 
     private static void assertTokenUsage(TokenUsage tokenUsage) {

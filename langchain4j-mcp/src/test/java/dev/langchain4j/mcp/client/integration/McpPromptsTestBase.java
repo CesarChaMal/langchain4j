@@ -7,6 +7,7 @@ import dev.langchain4j.mcp.client.McpBlobResourceContents;
 import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.mcp.client.McpEmbeddedResource;
 import dev.langchain4j.mcp.client.McpException;
+import dev.langchain4j.mcp.client.McpGetPromptResult;
 import dev.langchain4j.mcp.client.McpImageContent;
 import dev.langchain4j.mcp.client.McpPrompt;
 import dev.langchain4j.mcp.client.McpPromptArgument;
@@ -15,7 +16,6 @@ import dev.langchain4j.mcp.client.McpPromptMessage;
 import dev.langchain4j.mcp.client.McpResourceContents;
 import dev.langchain4j.mcp.client.McpRole;
 import dev.langchain4j.mcp.client.McpTextContent;
-import dev.langchain4j.mcp.client.McpGetPromptResult;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -27,7 +27,7 @@ public abstract class McpPromptsTestBase {
     @Test
     void listPrompts() {
         List<McpPrompt> prompts = mcpClient.listPrompts();
-        assertThat(prompts.size()).isEqualTo(5);
+        assertThat(prompts).hasSize(5);
 
         McpPrompt basic = findPromptByName("basic", prompts);
         assertThat(basic).isNotNull();
@@ -61,7 +61,7 @@ public abstract class McpPromptsTestBase {
     @Test
     void getBasicPrompt() {
         McpGetPromptResult prompt = mcpClient.getPrompt("basic", Map.of());
-        assertThat(prompt.description()).isEqualTo(null);
+        assertThat(prompt.description()).isNull();
         assertThat(prompt.messages()).hasSize(1);
         McpPromptMessage message = prompt.messages().get(0);
         assertThat(message.role()).isEqualTo(McpRole.USER);
@@ -71,7 +71,7 @@ public abstract class McpPromptsTestBase {
     @Test
     void getMultiPrompt() {
         McpGetPromptResult prompt = mcpClient.getPrompt("multi", Map.of());
-        assertThat(prompt.description()).isEqualTo(null);
+        assertThat(prompt.description()).isNull();
         assertThat(prompt.messages()).hasSize(2);
 
         McpPromptMessage message1 = prompt.messages().get(0);
@@ -88,7 +88,7 @@ public abstract class McpPromptsTestBase {
     @Test
     void getImagePrompt() {
         McpGetPromptResult prompt = mcpClient.getPrompt("image", Map.of());
-        assertThat(prompt.description()).isEqualTo(null);
+        assertThat(prompt.description()).isNull();
         assertThat(prompt.messages()).hasSize(1);
         McpPromptMessage message = prompt.messages().get(0);
         assertThat(message.role()).isEqualTo(McpRole.USER);
@@ -100,7 +100,7 @@ public abstract class McpPromptsTestBase {
     @Test
     void getParametrizedPrompt() {
         McpGetPromptResult prompt = mcpClient.getPrompt("parametrized", Map.of("name", "Bob"));
-        assertThat(prompt.description()).isEqualTo(null);
+        assertThat(prompt.description()).isNull();
         assertThat(prompt.messages()).hasSize(1);
         McpPromptMessage message = prompt.messages().get(0);
         assertThat(message.role()).isEqualTo(McpRole.USER);
